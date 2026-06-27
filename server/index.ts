@@ -6,7 +6,15 @@ import type { BattleAction, BattleState, CardCode } from '../src/game/types'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
-const allowedOrigins = CLIENT_ORIGIN.split(',').map((origin) => origin.trim())
+const allowedOrigins = CLIENT_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+
+function isAllowedOrigin(origin?: string) {
+  if (!origin) return true
+  if (allowedOrigins.includes(origin)) return true
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true
+  if (/^http:\/\/localhost:\d+$/i.test(origin)) return true
+  return false
+}
 
 const httpServer = createServer((request, response) => {
   if (request.url === '/' || request.url === '/health') {
@@ -19,7 +27,11 @@ const httpServer = createServer((request, response) => {
   response.end(JSON.stringify({ error: 'not_found' }))
 })
 const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins },
+  cors: {
+    origin(origin, callback) {
+      callback(isAllowedOrigin(origin) ? null : new Error('Origin not allowed'), isAllowedOrigin(origin))
+    },
+  },
 })
 
 type QueuedPlayer = {
