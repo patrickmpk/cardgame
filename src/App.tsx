@@ -86,6 +86,20 @@ function App() {
   const rival = battle?.players.find((player) => player.id !== socket.id)
   const isMyTurn = Boolean(battle && battle.activePlayerId === socket.id && battle.phase === 'playing')
 
+  function joinMatchmaking() {
+    if (!socketConnected) {
+      setSocketError('Could not connect to the realtime server.')
+      socket.connect()
+      return
+    }
+
+    setBattle(null)
+    setQueued(true)
+    setQueuePosition(1)
+    setSocketError('')
+    socket.emit('matchmaking:join', { name, deck })
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -113,7 +127,7 @@ function App() {
         <Stat icon={<Hand />} label="Deck" value={`${deck.length}/30`} />
         <Stat icon={<Zap />} label="Curve" value={Math.round(collectionStats.deckPower / deck.length || 0).toString()} />
         <Stat icon={socketConnected ? <Wifi /> : <WifiOff />} label="Server" value={socketConnected ? 'Online' : 'Offline'} />
-        <button className="primary" disabled={deck.length !== 30 || queued || !socketConnected} onClick={() => socket.emit('matchmaking:join', { name, deck })}>
+        <button className="primary" disabled={deck.length !== 30 || queued} onClick={joinMatchmaking}>
           {queued ? <Hourglass size={18} /> : <Play size={18} />}
           {queued ? `Queue ${queuePosition}` : 'Find PvP'}
         </button>
