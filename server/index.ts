@@ -10,6 +10,7 @@ const allowedOrigins = CLIENT_ORIGIN.split(',').map((origin) => origin.trim()).f
 
 function isAllowedOrigin(origin?: string) {
   if (!origin) return true
+  if (process.env.ALLOW_ANY_ORIGIN === 'true') return true
   if (allowedOrigins.includes(origin)) return true
   if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true
   if (/^http:\/\/localhost:\d+$/i.test(origin)) return true
@@ -29,8 +30,10 @@ const httpServer = createServer((request, response) => {
 const io = new Server(httpServer, {
   cors: {
     origin(origin, callback) {
-      callback(isAllowedOrigin(origin) ? null : new Error('Origin not allowed'), isAllowedOrigin(origin))
+      const allowed = isAllowedOrigin(origin)
+      callback(allowed ? null : new Error(`Origin not allowed: ${origin ?? 'unknown'}`), allowed)
     },
+    methods: ['GET', 'POST'],
   },
 })
 
