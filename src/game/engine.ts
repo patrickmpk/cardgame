@@ -4,6 +4,7 @@ import type { BattleAction, BattleLog, BattleState, BoardCard, CardCode, ClientB
 const HAND_SIZE = 5
 const STARTING_HP = 30
 const MAX_BOARD = 3
+const PULSE_BURST_CHARGE = 3
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -42,6 +43,9 @@ function makePlayer(id: string, name: string, deck: CardCode[]): PlayerState {
     hp: STARTING_HP,
     energy: 1,
     maxEnergy: 1,
+    pulseElement: undefined,
+    pulseChain: 0,
+    pulseCharge: 0,
     deck: shuffle(deck),
     hand: [],
     discard: [],
@@ -84,6 +88,9 @@ function toPublic(player: PlayerState): PublicPlayer {
     hp: player.hp,
     energy: player.energy,
     maxEnergy: player.maxEnergy,
+    pulseElement: player.pulseElement,
+    pulseChain: player.pulseChain,
+    pulseCharge: player.pulseCharge,
     deckCount: player.deck.length,
     handCount: player.hand.length,
     discardCount: player.discard.length,
@@ -123,6 +130,7 @@ function playCard(state: BattleState, player: PlayerState, rival: PlayerState, h
   player.energy -= card.cost
   player.hand.splice(handIndex, 1)
   player.discard.push(code)
+  applyPulse(state, player, rival, card.element)
 
   if (card.type === 'creature') {
     player.board.push({
@@ -141,6 +149,31 @@ function playCard(state: BattleState, player: PlayerState, rival: PlayerState, h
   }
 
   refreshCounts(player)
+}
+
+function applyPulse(state: BattleState, player: PlayerState, rival: PlayerState, element: PlayerState['pulseElement']) {
+  if (!element) return
+  if (player.pulseElement === element) {
+    player.pulseChain += 1
+    player.pulseCharge = Math.min(PULSE_BURST_CHARGE, player.pulseCharge + 1)
+    if (player.pulseChain > 1) {
+      player.energy = Math.min(player.maxEnergy, player.energy + 1)
+      addLog(state, `${player.name} chained ${element}: +1 energy.`, 'heal')
+    }
+  } else {
+    player.pulseElement = element
+    player.pulseChain = 1
+    player.pulseCharge = Math.min(PULSE_BURST_CHARGE, player.pulseCharge + 1)
+    addLog(state, `${player.name} tuned the arena to ${element}.`)
+  }
+
+  if (player.pulseCharge >= PULSE_BURST_CHARGE) {
+    const burstDamage = 3 + Math.max(0, player.pulseChain - 2)
+    rival.hp -= burstDamage
+    player.hp = Math.min(STARTING_HP, player.hp + 2)
+    player.pulseCharge = 0
+    addLog(state, `PULSE BURST! ${element} deals -${burstDamage} HP and restores +2 HP.`, 'win')
+  }
 }
 
 function resolveEffect(state: BattleState, player: PlayerState, rival: PlayerState, effect: string, amount: number, targetId?: string) {
@@ -216,6 +249,7 @@ function endTurn(state: BattleState) {
   state.turn += 1
   next.maxEnergy = Math.min(10, next.maxEnergy + 1)
   next.energy = next.maxEnergy
+  next.pulseChain = 0
   next.board.forEach((unit: BoardCard) => {
     unit.canAttack = true
   })

@@ -179,7 +179,7 @@ function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand
         </div>
         <Swords size={44} />
         <h1>Enter the arena</h1>
-        <p>Choose your deck and start a duel. If no player is online, the arena will summon Pockemy Bot for a quick battle.</p>
+        <p>Play matching elements to build Pulse Chain. At 3 charges, Pulse Burst damages the rival core and restores your HP.</p>
       </section>
     )
   }
@@ -246,6 +246,11 @@ function PlayerPanel({ player, active }: { player: PublicPlayer; active: boolean
       </div>
       <span className="vital hp"><Heart size={16} /> {player.hp}</span>
       <span className="vital energy"><Zap size={16} /> {player.energy}/{player.maxEnergy}</span>
+      <span className={`pulse-chip ${player.pulseElement ?? 'none'}`}>
+        <Flame size={16} />
+        {player.pulseElement ?? 'pulse'} {player.pulseCharge}/3
+        {player.pulseChain > 1 ? ` x${player.pulseChain}` : ''}
+      </span>
       <span className="vital"><Library size={16} /> {player.deckCount}</span>
       <span className="vital"><Hand size={16} /> {player.handCount}</span>
     </div>

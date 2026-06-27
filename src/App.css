@@ -269,7 +269,7 @@ button:disabled {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(220px, 300px) 1fr;
+  grid-template-columns: minmax(210px, 270px) minmax(820px, 1fr);
   gap: 20px;
   padding: 20px clamp(16px, 3vw, 40px) 36px;
 }
@@ -320,6 +320,7 @@ button:disabled {
   display: grid;
   gap: 14px;
   padding: 20px;
+  min-height: 720px;
   border: 1px solid rgba(125, 226, 255, .18);
   border-radius: 8px;
   background:
@@ -413,8 +414,8 @@ button:disabled {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 11px;
-  min-height: 58px;
+  gap: 10px;
+  min-height: 62px;
   padding: 9px 12px;
   border: 1px solid rgba(255,255,255,.14);
   border-radius: 8px;
@@ -485,13 +486,36 @@ button:disabled {
   color: #d6f6ff;
 }
 
+.pulse-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 118px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 8px;
+  color: #fff1bd;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.04)),
+    rgba(255, 217, 119, .1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 22px rgba(255,217,119,.12);
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
+.pulse-chip.spark { color: #fff3a5; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 22px rgba(255,221,84,.2); }
+.pulse-chip.leaf { color: #b8ffd1; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 22px rgba(102,255,160,.18); }
+.pulse-chip.tide { color: #bcefff; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 22px rgba(89,210,255,.2); }
+.pulse-chip.ember { color: #ffd3bf; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 22px rgba(255,121,75,.2); }
+.pulse-chip.void { color: #dec7ff; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 22px rgba(179,128,255,.2); }
+
 .board {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 16px;
-  min-height: 188px;
+  min-height: 220px;
   perspective: 1100px;
 }
 
@@ -544,7 +568,7 @@ button:disabled {
 
 .unit img {
   width: 100%;
-  height: 146px;
+  height: 178px;
   object-fit: cover;
   display: block;
   filter: saturate(1.08) contrast(1.04);
@@ -578,7 +602,7 @@ button:disabled {
 .slot {
   display: grid;
   place-items: center;
-  min-height: 178px;
+  min-height: 210px;
   border-style: dashed;
   color: rgba(230, 238, 241, 0.42);
 }
@@ -628,10 +652,18 @@ button:disabled {
 .hand-row {
   position: relative;
   z-index: 3;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  display: flex;
   gap: 12px;
   padding-top: 4px;
+  overflow-x: auto;
+  overflow-y: visible;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.hand-row .card-tile {
+  flex: 0 0 clamp(148px, 13vw, 190px);
+  scroll-snap-align: start;
 }
 
 .card-wall, .builder-cards {
@@ -757,7 +789,7 @@ button:disabled {
 }
 
 .card-tile.compact {
-  min-height: 224px;
+  min-height: 252px;
 }
 
 .card-tile.compact p {
@@ -831,7 +863,7 @@ button:disabled {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
   .topbar, .status-strip {
     align-items: stretch;
     flex-direction: column;
@@ -849,6 +881,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .arena {
+    min-height: 0;
+  }
+
   .combat-log {
     order: 2;
     max-height: none;
@@ -860,15 +896,15 @@ button:disabled {
 
   .board {
     min-height: 142px;
-    grid-template-columns: repeat(3, minmax(92px, 1fr));
+    grid-template-columns: repeat(3, minmax(112px, 1fr));
   }
 
   .unit img {
-    height: 112px;
+    height: 132px;
   }
 
   .slot {
-    min-height: 132px;
+    min-height: 152px;
   }
 
   .core-row {
@@ -906,7 +942,7 @@ button:disabled {
   }
 
   .hand-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
   }
 
   .card-wall, .builder-cards {

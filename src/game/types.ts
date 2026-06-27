@@ -25,6 +25,9 @@ export type PublicPlayer = {
   hp: number
   energy: number
   maxEnergy: number
+  pulseElement?: Element
+  pulseChain: number
+  pulseCharge: number
   deckCount: number
   handCount: number
   discardCount: number
