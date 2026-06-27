@@ -3,7 +3,7 @@ import { BadgePlus, Boxes, Check, Crown, Flame, Hand, Heart, Hourglass, Library,
 import './App.css'
 import { CARD_BY_CODE, CARDS, STARTER_COLLECTION, STARTER_DECK } from './data/cards'
 import type { BattleAction, Card, CardCode, ClientBattleState, PublicPlayer } from './game/types'
-import { socket } from './network/socket'
+import { socket, socketUrl } from './network/socket'
 
 type View = 'battle' | 'collection' | 'deck' | 'inventory'
 
@@ -139,7 +139,7 @@ function App() {
       </section>
       {(queued || socketError) && (
         <section className="notice">
-          {queued ? 'Waiting for another player. A test bot joins automatically after a few seconds.' : `Realtime server offline: ${socketError}`}
+          {queued ? 'Waiting for another player. A test bot joins automatically after a few seconds.' : `Realtime server offline: ${socketError}. Target: ${socketUrl}`}
         </section>
       )}
 
