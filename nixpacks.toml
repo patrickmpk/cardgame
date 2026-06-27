@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["echo Skipping frontend build for Railway realtime server"]
+
+[start]
+cmd = "npm run start"
