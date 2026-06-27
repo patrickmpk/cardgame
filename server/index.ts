@@ -6,10 +6,20 @@ import type { BattleAction, BattleState, CardCode } from '../src/game/types'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
+const allowedOrigins = CLIENT_ORIGIN.split(',').map((origin) => origin.trim())
 
-const httpServer = createServer()
+const httpServer = createServer((request, response) => {
+  if (request.url === '/' || request.url === '/health') {
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ ok: true, service: 'pockemy-realtime' }))
+    return
+  }
+
+  response.writeHead(404, { 'content-type': 'application/json' })
+  response.end(JSON.stringify({ error: 'not_found' }))
+})
 const io = new Server(httpServer, {
-  cors: { origin: CLIENT_ORIGIN },
+  cors: { origin: allowedOrigins },
 })
 
 type QueuedPlayer = {
