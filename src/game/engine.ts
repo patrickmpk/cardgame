@@ -144,23 +144,39 @@ function playCard(state: BattleState, player: PlayerState, rival: PlayerState, h
 }
 
 function resolveEffect(state: BattleState, player: PlayerState, rival: PlayerState, effect: string, amount: number, targetId?: string) {
-  if (effect === 'draw') draw(player, Math.min(2, amount - 1))
-  if (effect === 'heal') player.hp = Math.min(STARTING_HP, player.hp + amount)
+  if (effect === 'draw') {
+    const cards = Math.min(2, amount - 1)
+    draw(player, cards)
+    addLog(state, `${player.name} drew ${cards} card${cards === 1 ? '' : 's'}.`)
+  }
+  if (effect === 'heal') {
+    player.hp = Math.min(STARTING_HP, player.hp + amount)
+    addLog(state, `+${amount} HP restored to ${player.name}.`, 'heal')
+  }
   if (effect === 'guard') {
     const ally = player.board[0]
     if (ally) {
       ally.maxHealth += amount
       ally.health += amount
+      addLog(state, `${CARD_BY_CODE[ally.code].name} gained +${amount} HP.`, 'heal')
     }
   }
   if (effect === 'buff') {
     const ally = player.board[0]
-    if (ally) ally.attack += amount
+    if (ally) {
+      ally.attack += amount
+      addLog(state, `${CARD_BY_CODE[ally.code].name} gained +${amount} attack.`, 'heal')
+    }
   }
   if (effect === 'damage') {
     const target = rival.board.find((unit) => unit.instanceId === targetId)
-    if (target) target.health -= amount
-    else rival.hp -= amount
+    if (target) {
+      target.health -= amount
+      addLog(state, `-${amount} HP to ${CARD_BY_CODE[target.code].name}.`, 'hit')
+    } else {
+      rival.hp -= amount
+      addLog(state, `-${amount} HP to ${rival.name}'s core.`, 'hit')
+    }
     clearDefeated(state)
   }
 }
@@ -173,11 +189,11 @@ function attack(state: BattleState, player: PlayerState, rival: PlayerState, att
   if (target) {
     target.health -= attacker.attack
     attacker.health -= target.attack
-    addLog(state, `${CARD_BY_CODE[attacker.code].name} hit ${CARD_BY_CODE[target.code].name}.`, 'hit')
+    addLog(state, `${CARD_BY_CODE[attacker.code].name} dealt -${attacker.attack} HP to ${CARD_BY_CODE[target.code].name}.`, 'hit')
     clearDefeated(state)
   } else {
     rival.hp -= attacker.attack
-    addLog(state, `${CARD_BY_CODE[attacker.code].name} attacked the rival core for ${attacker.attack}.`, 'hit')
+    addLog(state, `${CARD_BY_CODE[attacker.code].name} dealt -${attacker.attack} HP to ${rival.name}'s core.`, 'hit')
   }
 }
 

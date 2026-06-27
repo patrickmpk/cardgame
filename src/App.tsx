@@ -172,9 +172,14 @@ function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand
   if (!battle || !me || !rival) {
     return (
       <section className="empty-state">
+        <div className="empty-orbit">
+          <img src={CARD_BY_CODE.PKC_001.image} alt="" />
+          <img src={CARD_BY_CODE.HLC_001.image} alt="" />
+          <img src={CARD_BY_CODE.SLC_001.image} alt="" />
+        </div>
         <Swords size={44} />
         <h1>Enter the arena</h1>
-        <p>Build a 30-card deck, press Find PvP, and keep this page open in two browser tabs to test a realtime duel locally.</p>
+        <p>Choose your deck and start a duel. If no player is online, the arena will summon Pockemy Bot for a quick battle.</p>
       </section>
     )
   }
@@ -203,11 +208,16 @@ function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand
 
       <div className="arena">
         {winner && <div className="result-banner">{winner}</div>}
+        <div className="battle-bursts" aria-hidden="true">
+          {battle.log.slice(0, 3).map((item, index) => (
+            <span key={item.id} className={`burst ${item.tone}`} style={{ animationDelay: `${index * 120}ms` }}>{item.text}</span>
+          ))}
+        </div>
         <PlayerPanel player={rival} active={battle.activePlayerId === rival.id} />
         <Board cards={rival.board} opponent onTarget={chooseTarget} targeting={targeting} />
         <div className="core-row">
           <button className="core" disabled={!targeting} onClick={() => chooseTarget(undefined)}>
-            <Flame size={24} /> Rival Core
+            <Flame size={24} /> Rival Core <strong>{rival.hp} HP</strong>
           </button>
           <div className="turn-pill">{isMyTurn ? 'Your turn' : `${rival.name}'s turn`}</div>
           <button className="ghost" disabled={!isMyTurn} onClick={() => socket.emit('battle:action', { type: 'endTurn' } satisfies BattleAction)}>End Turn</button>
@@ -226,13 +236,18 @@ function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand
 }
 
 function PlayerPanel({ player, active }: { player: PublicPlayer; active: boolean }) {
+  const hpPercent = Math.max(0, Math.min(100, (player.hp / 30) * 100))
   return (
     <div className={active ? 'player-panel active' : 'player-panel'}>
-      <strong>{player.name}</strong>
-      <span><Heart size={16} /> {player.hp}</span>
-      <span><Zap size={16} /> {player.energy}/{player.maxEnergy}</span>
-      <span><Library size={16} /> {player.deckCount}</span>
-      <span><Hand size={16} /> {player.handCount}</span>
+      <div className="avatar-core"><Crown size={18} /></div>
+      <div className="player-main">
+        <strong>{player.name}</strong>
+        <div className="hp-track"><i style={{ width: `${hpPercent}%` }} /></div>
+      </div>
+      <span className="vital hp"><Heart size={16} /> {player.hp}</span>
+      <span className="vital energy"><Zap size={16} /> {player.energy}/{player.maxEnergy}</span>
+      <span className="vital"><Library size={16} /> {player.deckCount}</span>
+      <span className="vital"><Hand size={16} /> {player.handCount}</span>
     </div>
   )
 }
@@ -244,10 +259,10 @@ function Board({ cards, opponent, targeting, onTarget }: { cards: PublicPlayer['
         <button key={unit.instanceId} className={`unit ${unit.canAttack ? 'ready' : ''}`} onClick={() => onTarget(unit.instanceId)} disabled={!targeting && opponent}>
           <img src={CARD_BY_CODE[unit.code].image} alt={CARD_BY_CODE[unit.code].name} />
           <span>{CARD_BY_CODE[unit.code].name}</span>
-          <b>{unit.attack}/{unit.health}</b>
+          <b><Swords size={14} /> {unit.attack} <Heart size={14} /> {unit.health}</b>
         </button>
       ))}
-      {Array.from({ length: Math.max(0, 3 - cards.length) }).map((_, index) => <div className="slot" key={index}>Empty</div>)}
+      {Array.from({ length: Math.max(0, 3 - cards.length) }).map((_, index) => <div className="slot" key={index}><span>Summon Slot</span></div>)}
     </div>
   )
 }
@@ -304,7 +319,7 @@ function Inventory({ stats, name }: { stats: { owned: number; unique: number; de
 
 function CardTile({ card, count, compact, selected, disabled, onClick }: { card: Card; count?: number; compact?: boolean; selected?: boolean; disabled?: boolean; onClick?: () => void }) {
   return (
-    <button className={`card-tile ${compact ? 'compact' : ''} ${selected ? 'selected' : ''}`} onClick={onClick} disabled={disabled}>
+    <button className={`card-tile ${card.element} ${compact ? 'compact' : ''} ${selected ? 'selected' : ''}`} onClick={onClick} disabled={disabled}>
       <img src={card.image} alt={card.name} loading="lazy" />
       <div>
         <strong>{card.name}</strong>
