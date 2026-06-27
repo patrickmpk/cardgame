@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgePlus, Boxes, Check, Crown, Flame, Hand, Heart, Hourglass, Library, LogOut, Play, Shield, Swords, Trophy, UserRound, Zap } from 'lucide-react'
+import { BadgePlus, Boxes, Check, Crown, Flame, Hand, Heart, Hourglass, Library, LogOut, Play, Shield, Swords, Trophy, UserRound, Wifi, WifiOff, Zap } from 'lucide-react'
 import './App.css'
 import { CARD_BY_CODE, CARDS, STARTER_COLLECTION, STARTER_DECK } from './data/cards'
 import type { BattleAction, Card, CardCode, ClientBattleState, PublicPlayer } from './game/types'
@@ -27,6 +27,8 @@ function App() {
   const [name, setName] = useState(localStorage.getItem(nameKey) ?? `Trainer ${Math.floor(Math.random() * 900 + 100)}`)
   const [queued, setQueued] = useState(false)
   const [queuePosition, setQueuePosition] = useState(0)
+  const [socketConnected, setSocketConnected] = useState(socket.connected)
+  const [socketError, setSocketError] = useState('')
   const [battle, setBattle] = useState<ClientBattleState | null>(null)
   const [selectedHand, setSelectedHand] = useState<number | null>(null)
   const [targeting, setTargeting] = useState<BattleAction | null>(null)
@@ -40,6 +42,20 @@ function App() {
   }, [name])
 
   useEffect(() => {
+    const markConnected = () => {
+      setSocketConnected(true)
+      setSocketError('')
+    }
+    const markDisconnected = () => {
+      setSocketConnected(false)
+    }
+    const markError = (error: Error) => {
+      setSocketConnected(false)
+      setSocketError(error.message)
+    }
+    socket.on('connect', markConnected)
+    socket.on('disconnect', markDisconnected)
+    socket.on('connect_error', markError)
     socket.on('matchmaking:status', ({ queued: isQueued, position }) => {
       setQueued(isQueued)
       setQueuePosition(position)
@@ -52,6 +68,9 @@ function App() {
       setView('battle')
     })
     return () => {
+      socket.off('connect', markConnected)
+      socket.off('disconnect', markDisconnected)
+      socket.off('connect_error', markError)
       socket.off('matchmaking:status')
       socket.off('battle:update')
     }
@@ -93,7 +112,8 @@ function App() {
         <Stat icon={<Library />} label="Collection" value={`${collectionStats.unique}/45`} />
         <Stat icon={<Hand />} label="Deck" value={`${deck.length}/30`} />
         <Stat icon={<Zap />} label="Curve" value={Math.round(collectionStats.deckPower / deck.length || 0).toString()} />
-        <button className="primary" disabled={deck.length !== 30 || queued} onClick={() => socket.emit('matchmaking:join', { name, deck })}>
+        <Stat icon={socketConnected ? <Wifi /> : <WifiOff />} label="Server" value={socketConnected ? 'Online' : 'Offline'} />
+        <button className="primary" disabled={deck.length !== 30 || queued || !socketConnected} onClick={() => socket.emit('matchmaking:join', { name, deck })}>
           {queued ? <Hourglass size={18} /> : <Play size={18} />}
           {queued ? `Queue ${queuePosition}` : 'Find PvP'}
         </button>
@@ -103,6 +123,11 @@ function App() {
           </button>
         )}
       </section>
+      {(queued || socketError) && (
+        <section className="notice">
+          {queued ? 'Waiting for another player. A test bot joins automatically after a few seconds.' : `Realtime server offline: ${socketError}`}
+        </section>
+      )}
 
       {view === 'battle' && <BattleView battle={battle} me={me} rival={rival} isMyTurn={isMyTurn} selectedHand={selectedHand} setSelectedHand={setSelectedHand} targeting={targeting} setTargeting={setTargeting} />}
       {view === 'collection' && <CollectionView />}

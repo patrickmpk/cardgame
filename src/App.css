@@ -84,6 +84,15 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.notice {
+  margin: 12px clamp(14px, 3vw, 34px) 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 217, 119, 0.45);
+  border-radius: 8px;
+  color: #ffe8a8;
+  background: rgba(255, 217, 119, 0.09);
+}
+
 .status-strip label, .stat {
   display: inline-flex;
   align-items: center;

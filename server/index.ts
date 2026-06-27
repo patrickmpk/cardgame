@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { Server } from 'socket.io'
-import { STARTER_DECK } from '../src/data/cards'
+import { CARD_BY_CODE, STARTER_DECK } from '../src/data/cards'
 import { applyAction, createBattle, toClientState } from '../src/game/engine'
 import type { BattleAction, BattleState, CardCode } from '../src/game/types'
 
@@ -38,11 +38,13 @@ type QueuedPlayer = {
   id: string
   name: string
   deck: CardCode[]
+  timer?: ReturnType<typeof setTimeout>
 }
 
 const queue: QueuedPlayer[] = []
 const battles = new Map<string, BattleState>()
 const playerBattle = new Map<string, string>()
+const botPlayers = new Set<string>()
 
 function emitBattle(battle: BattleState) {
   for (const player of battle.players) {
@@ -55,6 +57,65 @@ function normalizeDeck(deck: CardCode[]) {
   return clean.length === 30 ? clean : STARTER_DECK
 }
 
+function removeFromQueue(playerId: string) {
+  const index = queue.findIndex((player) => player.id === playerId)
+  if (index >= 0) {
+    const [player] = queue.splice(index, 1)
+    if (player.timer) clearTimeout(player.timer)
+  }
+}
+
+function startBattle(p1: QueuedPlayer, p2: QueuedPlayer) {
+  if (p1.timer) clearTimeout(p1.timer)
+  if (p2.timer) clearTimeout(p2.timer)
+  const battle = createBattle(`battle-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, p1, p2)
+  battles.set(battle.id, battle)
+  playerBattle.set(p1.id, battle.id)
+  playerBattle.set(p2.id, battle.id)
+  io.to(p1.id).emit('matchmaking:status', { queued: false, position: 0 })
+  io.to(p2.id).emit('matchmaking:status', { queued: false, position: 0 })
+  emitBattle(battle)
+  scheduleBotTurn(battle)
+}
+
+function scheduleBotMatch(player: QueuedPlayer) {
+  player.timer = setTimeout(() => {
+    if (!queue.find((queued) => queued.id === player.id)) return
+    removeFromQueue(player.id)
+    const botId = `bot-${Date.now()}`
+    botPlayers.add(botId)
+    startBattle(player, {
+      id: botId,
+      name: 'Pockemy Bot',
+      deck: STARTER_DECK,
+    })
+  }, Number(process.env.BOT_MATCH_DELAY_MS ?? 6500))
+}
+
+function scheduleBotTurn(battle: BattleState) {
+  if (battle.phase === 'finished' || !botPlayers.has(battle.activePlayerId)) return
+  setTimeout(() => {
+    const bot = battle.players.find((player) => player.id === battle.activePlayerId)
+    const rival = battle.players.find((player) => player.id !== battle.activePlayerId)
+    if (!bot || !rival || battle.phase === 'finished') return
+
+    const index = bot.hand.findIndex((code) => bot.energy >= CARD_BY_CODE[code].cost)
+
+    if (index >= 0) {
+      applyAction(battle, bot.id, { type: 'play', handIndex: index })
+    }
+
+    for (const unit of [...bot.board]) {
+      if (unit.canAttack) applyAction(battle, bot.id, { type: 'attack', attackerId: unit.instanceId, targetId: rival.board[0]?.instanceId })
+    }
+
+    if (battle.phase === 'playing' && battle.activePlayerId === bot.id) {
+      applyAction(battle, bot.id, { type: 'endTurn' })
+    }
+    emitBattle(battle)
+  }, 900)
+}
+
 io.on('connection', (socket) => {
   socket.on('matchmaking:join', ({ name, deck }: { name?: string; deck?: CardCode[] }) => {
     const player: QueuedPlayer = {
@@ -63,26 +124,22 @@ io.on('connection', (socket) => {
       deck: normalizeDeck(deck ?? []),
     }
     const alreadyQueued = queue.find((queued) => queued.id === socket.id)
-    if (!alreadyQueued) queue.push(player)
+    if (!alreadyQueued) {
+      queue.push(player)
+      scheduleBotMatch(player)
+    }
     socket.emit('matchmaking:status', { queued: true, position: queue.findIndex((queued) => queued.id === socket.id) + 1 })
 
     if (queue.length >= 2) {
       const p1 = queue.shift()
       const p2 = queue.shift()
       if (!p1 || !p2) return
-      const battle = createBattle(`battle-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, p1, p2)
-      battles.set(battle.id, battle)
-      playerBattle.set(p1.id, battle.id)
-      playerBattle.set(p2.id, battle.id)
-      socket.to(p1.id).emit('matchmaking:status', { queued: false, position: 0 })
-      socket.to(p2.id).emit('matchmaking:status', { queued: false, position: 0 })
-      emitBattle(battle)
+      startBattle(p1, p2)
     }
   })
 
   socket.on('matchmaking:leave', () => {
-    const index = queue.findIndex((player) => player.id === socket.id)
-    if (index >= 0) queue.splice(index, 1)
+    removeFromQueue(socket.id)
     socket.emit('matchmaking:status', { queued: false, position: 0 })
   })
 
@@ -92,11 +149,11 @@ io.on('connection', (socket) => {
     if (!battle) return
     applyAction(battle, socket.id, action)
     emitBattle(battle)
+    scheduleBotTurn(battle)
   })
 
   socket.on('disconnect', () => {
-    const index = queue.findIndex((player) => player.id === socket.id)
-    if (index >= 0) queue.splice(index, 1)
+    removeFromQueue(socket.id)
     const battleId = playerBattle.get(socket.id)
     const battle = battleId ? battles.get(battleId) : undefined
     if (battle && battle.phase !== 'finished') {
