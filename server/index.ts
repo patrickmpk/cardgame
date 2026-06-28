@@ -15,6 +15,13 @@ import {
   getLeaderboard,
   getMatchHistory,
 } from './player-service'
+import {
+  getEconomy,
+  awardMatchRewards,
+  buyPack,
+  openPack,
+  getShop,
+} from './economy-service'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
@@ -224,6 +231,40 @@ io.on('connection', async (socket) => {
     }
   })
 
+  socket.on('economy:balance', async () => {
+    try {
+      const balance = await getEconomy(playerId)
+      socket.emit('economy:balance', balance)
+    } catch (error) {
+      console.error('[Economy] Balance error:', error instanceof Error ? error.message : error)
+    }
+  })
+
+  socket.on('economy:shop', async () => {
+    try {
+      const shop = await getShop()
+      socket.emit('economy:shop', shop)
+    } catch (error) {
+      console.error('[Economy] Shop error:', error instanceof Error ? error.message : error)
+    }
+  })
+
+  socket.on('economy:buy_pack', async ({ packId }: { packId: string }) => {
+    try {
+      const pack = await buyPack(playerId, packId)
+      if (pack) {
+        const result = await openPack(playerId, packId)
+        const balance = await getEconomy(playerId)
+        socket.emit('economy:pack_opened', { pack, result, balance })
+      } else {
+        socket.emit('economy:error', { message: 'Not enough coins or pack not found' })
+      }
+    } catch (error) {
+      console.error('[Economy] Buy error:', error instanceof Error ? error.message : error)
+      socket.emit('economy:error', { message: 'Failed to purchase pack' })
+    }
+  })
+
   socket.on('matchmaking:join', ({ name, deck }: { name?: string; deck?: CardCode[] }) => {
     const player: QueuedPlayer = {
       id: socket.id,
@@ -306,6 +347,11 @@ function checkSaveMatch(battle: BattleState) {
     p2Deck as CardCode[],
     battle.log,
   ).catch((error) => console.error('[Match] Save error:', error instanceof Error ? error.message : error))
+
+  // Award coins to both players
+  const loserId = battle.winnerId === p1.id ? p2.id : p1.id
+  awardMatchRewards(p1.id ?? '', battle.winnerId === p1.id).catch(() => {})
+  awardMatchRewards(p2.id ?? '', battle.winnerId === p2.id).catch(() => {})
 }
 
 async function init() {

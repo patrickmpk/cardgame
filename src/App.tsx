@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { useAuth, useUser } from '@clerk/clerk-react'
-import { BadgePlus, Boxes, Check, Crown, Flame, Hand, Heart, Hourglass, Library, LogOut, Play, Shield, Swords, Trophy, UserRound, Wifi, WifiOff, Zap } from 'lucide-react'
+import { BadgePlus, Boxes, Check, Coins, Crown, Flame, Gem, Hand, Heart, Hourglass, Library, LogOut, Play, Shield, ShoppingBag, Swords, Trophy, UserRound, Wifi, WifiOff, Zap } from 'lucide-react'
 import './App.css'
 import { CARD_BY_CODE, CARDS, STARTER_COLLECTION, STARTER_DECK } from './data/cards'
 import type { BattleAction, Card, CardCode, ClientBattleState, PublicPlayer } from './game/types'
 import { socketUrl, connectWithClerk, getSocket } from './network/socket'
 import { Arena3D, FloatingCard, PulseEffect } from './components/3D'
+import { ShopView } from './components/ShopView'
 import { AuthGate } from './components/AuthGate'
 
-type View = 'battle' | 'collection' | 'deck' | 'inventory'
+type View = 'battle' | 'shop' | 'collection' | 'deck' | 'inventory'
 
 const deckKey = 'pockemy.deck'
 const nameKey = 'pockemy.name'
@@ -38,6 +39,8 @@ function App() {
   const [battle, setBattle] = useState<ClientBattleState | null>(null)
   const [selectedHand, setSelectedHand] = useState<number | null>(null)
   const [targeting, setTargeting] = useState<BattleAction | null>(null)
+  const [coins, setCoins] = useState(0)
+  const [gems, setGems] = useState(0)
 
   useEffect(() => {
     localStorage.setItem(deckKey, JSON.stringify(deck))
@@ -48,6 +51,13 @@ function App() {
   }, [name])
 
   // Connect socket with Clerk token
+  // Request economy balance when socket connects
+  useEffect(() => {
+    if (socketConnected) {
+      getSocket()?.emit('economy:balance')
+    }
+  }, [socketConnected])
+
   useEffect(() => {
     const listeners = {
       onConnect: () => {
@@ -71,6 +81,10 @@ function App() {
         setTargeting(null)
         setSelectedHand(null)
         setView('battle')
+      },
+      onBalance: (bal: { coins: number; gems: number }) => {
+        setCoins(bal.coins)
+        setGems(bal.gems)
       },
     }
 
@@ -124,8 +138,9 @@ function App() {
           <nav className="nav">
             <Tab active={view === 'battle'} icon={<Swords />} label="Battle" onClick={() => setView('battle')} />
             <Tab active={view === 'collection'} icon={<Library />} label="Cards" onClick={() => setView('collection')} />
-            <Tab active={view === 'deck'} icon={<Boxes />} label="Deck" onClick={() => setView('deck')} />
-            <Tab active={view === 'inventory'} icon={<Trophy />} label="Profile" onClick={() => setView('inventory')} />
+          <Tab active={view === 'shop'} icon={<ShoppingBag />} label="Shop" onClick={() => setView('shop')} />
+          <Tab active={view === 'deck'} icon={<Boxes />} label="Deck" onClick={() => setView('deck')} />
+          <Tab active={view === 'inventory'} icon={<Trophy />} label="Profile" onClick={() => setView('inventory')} />
           </nav>
         </header>
 
@@ -137,7 +152,11 @@ function App() {
           <Stat icon={<Library />} label="Collection" value={`${collectionStats.unique}/45`} />
           <Stat icon={<Hand />} label="Deck" value={`${deck.length}/30`} />
           <Stat icon={<Zap />} label="Curve" value={Math.round(collectionStats.deckPower / deck.length || 0).toString()} />
-          <Stat icon={socketConnected ? <Wifi /> : <WifiOff />} label="Server" value={socketConnected ? 'Online' : 'Offline'} />
+          <div className="status-coins">
+          <Coins size={16} /> {coins}
+          {gems > 0 && <><Gem size={16} /> {gems}</>}
+        </div>
+        <Stat icon={socketConnected ? <Wifi /> : <WifiOff />} label="Server" value={socketConnected ? 'Online' : 'Offline'} />
           <button className="primary" disabled={deck.length !== 30 || queued} onClick={joinMatchmaking}>
             {queued ? <Hourglass size={18} /> : <Play size={18} />}
             {queued ? `Queue ${queuePosition}` : 'Find PvP'}
@@ -154,10 +173,11 @@ function App() {
           </section>
         )}
 
-        {view === 'battle' && <BattleView battle={battle} me={me} rival={rival} isMyTurn={isMyTurn} selectedHand={selectedHand} setSelectedHand={setSelectedHand} targeting={targeting} setTargeting={setTargeting} />}
-        {view === 'collection' && <CollectionView />}
-        {view === 'deck' && <DeckBuilder deck={deck} setDeck={setDeck} />}
-        {view === 'inventory' && <Inventory stats={collectionStats} name={name} />}
+      {view === 'battle' && <BattleView battle={battle} me={me} rival={rival} isMyTurn={isMyTurn} selectedHand={selectedHand} setSelectedHand={setSelectedHand} targeting={targeting} setTargeting={setTargeting} />}
+      {view === 'shop' && <ShopView />}
+      {view === 'collection' && <CollectionView />}
+      {view === 'deck' && <DeckBuilder deck={deck} setDeck={setDeck} />}
+      {view === 'inventory' && <Inventory stats={collectionStats} name={name} coins={coins} gems={gems} />}
       </main>
     </AuthGate>
   )
@@ -402,7 +422,7 @@ function DeckBuilder({ deck, setDeck }: { deck: CardCode[]; setDeck: (deck: Card
   )
 }
 
-function Inventory({ stats, name }: { stats: { owned: number; unique: number; deckPower: number }; name: string }) {
+function Inventory({ stats, name, coins, gems }: { stats: { owned: number; unique: number; deckPower: number }; name: string; coins: number; gems: number }) {
   return (
     <section className="inventory">
       <div className="profile-card">
@@ -413,6 +433,8 @@ function Inventory({ stats, name }: { stats: { owned: number; unique: number; de
       <Stat icon={<BadgePlus />} label="Owned cards" value={String(stats.owned)} />
       <Stat icon={<Shield />} label="Unique cards" value={`${stats.unique}/45`} />
       <Stat icon={<Zap />} label="Deck energy" value={String(stats.deckPower)} />
+      <Stat icon={<Coins />} label="Coins" value={String(coins)} />
+      {gems > 0 && <Stat icon={<Gem />} label="Gems" value={String(gems)} />}
       <Stat icon={<Check />} label="Progression" value="Level 1" />
     </section>
   )

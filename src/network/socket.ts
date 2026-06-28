@@ -9,6 +9,7 @@ type SocketListeners = {
   onError: (error: Error) => void
   onMatchmaking: (data: { queued: boolean; position: number }) => void
   onBattleUpdate: (state: unknown) => void
+  onBalance?: (data: { coins: number; gems: number }) => void
 }
 
 let currentSocket: Socket | null = null
@@ -39,6 +40,9 @@ export async function connectWithClerk(
   currentSocket.on('connect_error', listeners.onError)
   currentSocket.on('matchmaking:status', listeners.onMatchmaking)
   currentSocket.on('battle:update', listeners.onBattleUpdate)
+  if (listeners.onBalance) {
+    currentSocket.on('economy:balance', listeners.onBalance)
+  }
 
   return currentSocket
 }

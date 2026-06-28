@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS players (
   level INTEGER NOT NULL DEFAULT 1,
   deck JSONB NOT NULL DEFAULT '[]'::jsonb,
   collection JSONB NOT NULL DEFAULT '{}'::jsonb,
-  settings JSONB NOT NULL DEFAULT '{}'::jsonb
+  settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+  coins INTEGER NOT NULL DEFAULT 500,
+  gems INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS match_history (
@@ -46,6 +48,20 @@ CREATE INDEX IF NOT EXISTS idx_match_history_player1 ON match_history(player1_id
 CREATE INDEX IF NOT EXISTS idx_match_history_player2 ON match_history(player2_id);
 CREATE INDEX IF NOT EXISTS idx_match_history_played_at ON match_history(played_at DESC);
 CREATE INDEX IF NOT EXISTS idx_players_mmr ON players(mmr DESC);
+
+CREATE TABLE IF NOT EXISTS shop_listings (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  price_coins INTEGER NOT NULL DEFAULT 0,
+  price_gems INTEGER NOT NULL DEFAULT 0,
+  pack_size INTEGER NOT NULL DEFAULT 5,
+  guaranteed_rarity TEXT,
+  guaranteed_element TEXT,
+  image_url TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT true
+);
 `
 
 export async function runMigrations() {
