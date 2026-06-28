@@ -4,6 +4,16 @@ import { CARD_BY_CODE, STARTER_DECK } from '../src/data/cards'
 import { applyAction, createBattle, toClientState } from '../src/game/engine'
 import type { BattleAction, BattleState, CardCode } from '../src/game/types'
 import { decideBotActions } from './ai-bot'
+import { testConnection, query } from './db'
+import { runMigrations } from './db-schema'
+import {
+  findOrCreatePlayer,
+  updatePlayerDeck,
+  updatePlayerName,
+  recordMatchResult,
+  getLeaderboard,
+  getMatchHistory,
+} from './player-service'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
@@ -119,7 +129,57 @@ function scheduleBotTurn(battle: BattleState) {
   }, 1200)
 }
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
+  let playerId = socket.id
+
+  socket.on('player:login', async ({ id, name }: { id?: string; name?: string }) => {
+    const userId = id ?? socket.id
+    const displayName = name?.trim().slice(0, 18) || `Trainer ${Math.floor(Math.random() * 900 + 100)}`
+
+    try {
+      const profile = await findOrCreatePlayer(userId, displayName)
+      playerId = userId
+      socket.emit('player:profile', profile)
+    } catch (error) {
+      console.error('[Player] Login error:', error instanceof Error ? error.message : error)
+    }
+  })
+
+  socket.on('player:update_deck', async ({ deck }: { deck: CardCode[] }) => {
+    try {
+      await updatePlayerDeck(playerId, normalizeDeck(deck))
+    } catch (error) {
+      console.error('[Player] Update deck error:', error instanceof Error ? error.message : error)
+    }
+  })
+
+  socket.on('player:update_name', async ({ name }: { name: string }) => {
+    try {
+      await updatePlayerName(playerId, name.trim().slice(0, 18))
+    } catch (error) {
+      console.error('[Player] Update name error:', error instanceof Error ? error.message : error)
+    }
+  })
+
+  socket.on('player:leaderboard', async () => {
+    try {
+      const board = await getLeaderboard()
+      socket.emit('player:leaderboard', board)
+    } catch (error) {
+      console.error('[Player] Leaderboard error:', error instanceof Error ? error.message : error)
+    }
+  })
+
+  socket.on('player:history', async () => {
+    try {
+      if (!playerId) return socket.emit('player:history', [])
+      const history = await getMatchHistory(playerId)
+      socket.emit('player:history', history)
+    } catch (error) {
+      console.error('[Player] History error:', error instanceof Error ? error.message : error)
+    }
+  })
+
   socket.on('matchmaking:join', ({ name, deck }: { name?: string; deck?: CardCode[] }) => {
     const player: QueuedPlayer = {
       id: socket.id,
@@ -153,6 +213,7 @@ io.on('connection', (socket) => {
     applyAction(battle, socket.id, action)
     emitBattle(battle)
     scheduleBotTurn(battle)
+    checkSaveMatch(battle)
   })
 
   socket.on('disconnect', () => {
@@ -162,11 +223,56 @@ io.on('connection', (socket) => {
     if (battle && battle.phase !== 'finished') {
       applyAction(battle, socket.id, { type: 'surrender' })
       emitBattle(battle)
+      checkSaveMatch(battle)
     }
     playerBattle.delete(socket.id)
   })
 })
 
-httpServer.listen(PORT, () => {
-  console.log(`Pockemy realtime server listening on http://localhost:${PORT}`)
-})
+const savedMatches = new Set<string>()
+
+function checkSaveMatch(battle: BattleState) {
+  if (battle.phase !== 'finished') return
+  if (savedMatches.has(battle.id)) return
+
+  // Skip saving matches involving bot opponents (no DB record for bots)
+  const isBotMatch = battle.players.some((p) => botPlayers.has(p.id))
+  if (isBotMatch) return
+
+  savedMatches.add(battle.id)
+
+  const p1 = battle.players[0]
+  const p2 = battle.players[1]
+  const p1Deck = p1.deck.length > 0
+    ? [...p1.deck, ...p1.hand, ...p1.discard].slice(0, 30)
+    : STARTER_DECK
+  const p2Deck = p2.deck.length > 0
+    ? [...p2.deck, ...p2.hand, ...p2.discard].slice(0, 30)
+    : STARTER_DECK
+
+  recordMatchResult(
+    battle.id,
+    p1.id,
+    p2.id,
+    battle.winnerId ?? null,
+    p1.name,
+    p2.name,
+    battle.turn,
+    p1Deck as CardCode[],
+    p2Deck as CardCode[],
+    battle.log,
+  ).catch((error) => console.error('[Match] Save error:', error instanceof Error ? error.message : error))
+}
+
+async function init() {
+  const dbOk = await testConnection()
+  if (dbOk) {
+    await runMigrations()
+  }
+
+  httpServer.listen(PORT, () => {
+    console.log(`Pockemy realtime server listening on http://localhost:${PORT}`)
+  })
+}
+
+init()
