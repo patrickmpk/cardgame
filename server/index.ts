@@ -3,6 +3,7 @@ import { Server } from 'socket.io'
 import { CARD_BY_CODE, STARTER_DECK } from '../src/data/cards'
 import { applyAction, createBattle, toClientState } from '../src/game/engine'
 import type { BattleAction, BattleState, CardCode } from '../src/game/types'
+import { createClerkClient } from '@clerk/backend'
 import { decideBotActions } from './ai-bot'
 import { testConnection, query } from './db'
 import { runMigrations } from './db-schema'
@@ -18,6 +19,24 @@ import {
 const PORT = Number(process.env.PORT ?? 3001)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
 const allowedOrigins = CLIENT_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+
+let clerk: ReturnType<typeof createClerkClient> | null = null
+try {
+  if (process.env.CLERK_SECRET_KEY) {
+    clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY })
+  } else {
+    console.warn('[Auth] CLERK_SECRET_KEY not set — Socket.io JWT verification disabled')
+  }
+} catch (error) {
+  console.error('[Auth] Failed to initialize Clerk:', error instanceof Error ? error.message : error)
+}
+
+function requireClerk(): ReturnType<typeof createClerkClient> {
+  if (!clerk) {
+    throw new Error('Clerk client not initialized (CLERK_SECRET_KEY missing)')
+  }
+  return clerk
+}
 
 function isAllowedOrigin(origin?: string) {
   if (!origin) return true
@@ -129,8 +148,33 @@ function scheduleBotTurn(battle: BattleState) {
   }, 1200)
 }
 
+// Clerk JWT authentication middleware for Socket.io
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth?.token
+
+  // Allow bot connections (no token needed)
+  if (socket.id.startsWith('bot-')) {
+    return next()
+  }
+
+  if (!token) {
+    return next(new Error('Authentication required: no token provided'))
+  }
+
+  try {
+    const client = requireClerk()
+    const session = await client.verifyToken(token)
+    socket.data.userId = session.sub
+    socket.data.userName = session.username ?? `Player_${session.sub.slice(0, 6)}`
+    next()
+  } catch (error) {
+    console.error('[Auth] Token verification failed:', error instanceof Error ? error.message : error)
+    next(new Error('Authentication failed: invalid token'))
+  }
+})
+
 io.on('connection', async (socket) => {
-  let playerId = socket.id
+  let playerId = socket.data.userId ?? socket.id
 
   socket.on('player:login', async ({ id, name }: { id?: string; name?: string }) => {
     const userId = id ?? socket.id

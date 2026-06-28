@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useAuth, useUser } from '@clerk/clerk-react'
 import { BadgePlus, Boxes, Check, Crown, Flame, Hand, Heart, Hourglass, Library, LogOut, Play, Shield, Swords, Trophy, UserRound, Wifi, WifiOff, Zap } from 'lucide-react'
 import './App.css'
 import { CARD_BY_CODE, CARDS, STARTER_COLLECTION, STARTER_DECK } from './data/cards'
 import type { BattleAction, Card, CardCode, ClientBattleState, PublicPlayer } from './game/types'
-import { socket, socketUrl } from './network/socket'
+import { socketUrl, connectWithClerk, getSocket } from './network/socket'
 import { Arena3D, FloatingCard, PulseEffect } from './components/3D'
+import { AuthGate } from './components/AuthGate'
 
 type View = 'battle' | 'collection' | 'deck' | 'inventory'
 
@@ -24,12 +26,14 @@ function loadDeck(): CardCode[] {
 }
 
 function App() {
+  const { getToken } = useAuth()
+  const { user } = useUser()
   const [view, setView] = useState<View>('battle')
   const [deck, setDeck] = useState<CardCode[]>(loadDeck)
-  const [name, setName] = useState(localStorage.getItem(nameKey) ?? `Trainer ${Math.floor(Math.random() * 900 + 100)}`)
+  const [name, setName] = useState(user?.fullName ?? user?.username ?? `Trainer ${Math.floor(Math.random() * 900 + 100)}`)
   const [queued, setQueued] = useState(false)
   const [queuePosition, setQueuePosition] = useState(0)
-  const [socketConnected, setSocketConnected] = useState(socket.connected)
+  const [socketConnected, setSocketConnected] = useState(false)
   const [socketError, setSocketError] = useState('')
   const [battle, setBattle] = useState<ClientBattleState | null>(null)
   const [selectedHand, setSelectedHand] = useState<number | null>(null)
@@ -40,43 +44,46 @@ function App() {
   }, [deck])
 
   useEffect(() => {
-    localStorage.setItem(nameKey, name)
+    if (name) localStorage.setItem(nameKey, name)
   }, [name])
 
+  // Connect socket with Clerk token
   useEffect(() => {
-    const markConnected = () => {
-      setSocketConnected(true)
-      setSocketError('')
+    const listeners = {
+      onConnect: () => {
+        setSocketConnected(true)
+        setSocketError('')
+      },
+      onDisconnect: () => {
+        setSocketConnected(false)
+      },
+      onError: (error: Error) => {
+        setSocketConnected(false)
+        setSocketError(error.message)
+      },
+      onMatchmaking: ({ queued: isQueued, position }: { queued: boolean; position: number }) => {
+        setQueued(isQueued)
+        setQueuePosition(position)
+      },
+      onBattleUpdate: (state: unknown) => {
+        setBattle(state as ClientBattleState)
+        setQueued(false)
+        setTargeting(null)
+        setSelectedHand(null)
+        setView('battle')
+      },
     }
-    const markDisconnected = () => {
-      setSocketConnected(false)
-    }
-    const markError = (error: Error) => {
-      setSocketConnected(false)
-      setSocketError(error.message)
-    }
-    socket.on('connect', markConnected)
-    socket.on('disconnect', markDisconnected)
-    socket.on('connect_error', markError)
-    socket.on('matchmaking:status', ({ queued: isQueued, position }) => {
-      setQueued(isQueued)
-      setQueuePosition(position)
-    })
-    socket.on('battle:update', (state: ClientBattleState) => {
-      setBattle(state)
-      setQueued(false)
-      setTargeting(null)
-      setSelectedHand(null)
-      setView('battle')
-    })
+
+    connectWithClerk(getToken, listeners)
+
     return () => {
-      socket.off('connect', markConnected)
-      socket.off('disconnect', markDisconnected)
-      socket.off('connect_error', markError)
-      socket.off('matchmaking:status')
-      socket.off('battle:update')
+      const s = getSocket()
+      if (s) {
+        s.removeAllListeners()
+        s.disconnect()
+      }
     }
-  }, [])
+  }, [getToken])
 
   const collectionStats = useMemo(() => {
     const owned = Object.values(STARTER_COLLECTION).reduce((sum, count) => sum + count, 0)
@@ -84,14 +91,15 @@ function App() {
     return { owned, unique: CARDS.length, deckPower }
   }, [deck])
 
-  const me = battle?.players.find((player) => player.id === socket.id)
-  const rival = battle?.players.find((player) => player.id !== socket.id)
-  const isMyTurn = Boolean(battle && battle.activePlayerId === socket.id && battle.phase === 'playing')
+  const sock = getSocket()
+  const me = battle?.players.find((player) => player.id === sock?.id)
+  const rival = battle?.players.find((player) => player.id !== sock?.id)
+  const isMyTurn = Boolean(battle && battle.activePlayerId === sock?.id && battle.phase === 'playing')
 
   function joinMatchmaking() {
-    if (!socketConnected) {
+    const s = getSocket()
+    if (!socketConnected || !s) {
       setSocketError('Could not connect to the realtime server.')
-      socket.connect()
       return
     }
 
@@ -99,57 +107,59 @@ function App() {
     setQueued(true)
     setQueuePosition(1)
     setSocketError('')
-    socket.emit('matchmaking:join', { name, deck })
+    s.emit('matchmaking:join', { name, deck })
   }
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <Crown size={25} />
-          <div>
-            <strong>POCKEMY</strong>
-            <span>Card Battle Online</span>
+    <AuthGate>
+      <main className="shell">
+        <header className="topbar">
+          <div className="brand">
+            <Crown size={25} />
+            <div>
+              <strong>POCKEMY</strong>
+              <span>Card Battle Online</span>
+            </div>
           </div>
-        </div>
-        <nav className="nav">
-          <Tab active={view === 'battle'} icon={<Swords />} label="Battle" onClick={() => setView('battle')} />
-          <Tab active={view === 'collection'} icon={<Library />} label="Cards" onClick={() => setView('collection')} />
-          <Tab active={view === 'deck'} icon={<Boxes />} label="Deck" onClick={() => setView('deck')} />
-          <Tab active={view === 'inventory'} icon={<Trophy />} label="Profile" onClick={() => setView('inventory')} />
-        </nav>
-      </header>
+          <nav className="nav">
+            <Tab active={view === 'battle'} icon={<Swords />} label="Battle" onClick={() => setView('battle')} />
+            <Tab active={view === 'collection'} icon={<Library />} label="Cards" onClick={() => setView('collection')} />
+            <Tab active={view === 'deck'} icon={<Boxes />} label="Deck" onClick={() => setView('deck')} />
+            <Tab active={view === 'inventory'} icon={<Trophy />} label="Profile" onClick={() => setView('inventory')} />
+          </nav>
+        </header>
 
-      <section className="status-strip">
-        <label>
-          <UserRound size={16} />
-          <input value={name} onChange={(event) => setName(event.target.value)} maxLength={18} />
-        </label>
-        <Stat icon={<Library />} label="Collection" value={`${collectionStats.unique}/45`} />
-        <Stat icon={<Hand />} label="Deck" value={`${deck.length}/30`} />
-        <Stat icon={<Zap />} label="Curve" value={Math.round(collectionStats.deckPower / deck.length || 0).toString()} />
-        <Stat icon={socketConnected ? <Wifi /> : <WifiOff />} label="Server" value={socketConnected ? 'Online' : 'Offline'} />
-        <button className="primary" disabled={deck.length !== 30 || queued} onClick={joinMatchmaking}>
-          {queued ? <Hourglass size={18} /> : <Play size={18} />}
-          {queued ? `Queue ${queuePosition}` : 'Find PvP'}
-        </button>
-        {queued && (
-          <button className="ghost" onClick={() => socket.emit('matchmaking:leave')}>
-            <LogOut size={18} />
+        <section className="status-strip">
+          <label>
+            <UserRound size={16} />
+            <input value={name} onChange={(event) => setName(event.target.value)} maxLength={18} />
+          </label>
+          <Stat icon={<Library />} label="Collection" value={`${collectionStats.unique}/45`} />
+          <Stat icon={<Hand />} label="Deck" value={`${deck.length}/30`} />
+          <Stat icon={<Zap />} label="Curve" value={Math.round(collectionStats.deckPower / deck.length || 0).toString()} />
+          <Stat icon={socketConnected ? <Wifi /> : <WifiOff />} label="Server" value={socketConnected ? 'Online' : 'Offline'} />
+          <button className="primary" disabled={deck.length !== 30 || queued} onClick={joinMatchmaking}>
+            {queued ? <Hourglass size={18} /> : <Play size={18} />}
+            {queued ? `Queue ${queuePosition}` : 'Find PvP'}
           </button>
-        )}
-      </section>
-      {(queued || socketError) && (
-        <section className="notice">
-          {queued ? 'Waiting for another player. A test bot joins automatically after a few seconds.' : `Realtime server offline: ${socketError}. Target: ${socketUrl}`}
+          {queued && (
+            <button className="ghost" onClick={() => getSocket()?.emit('matchmaking:leave')}>
+              <LogOut size={18} />
+            </button>
+          )}
         </section>
-      )}
+        {(queued || socketError) && (
+          <section className="notice">
+            {queued ? 'Waiting for another player. A test bot joins automatically after a few seconds.' : `Realtime server offline: ${socketError}. Target: ${socketUrl}`}
+          </section>
+        )}
 
-      {view === 'battle' && <BattleView battle={battle} me={me} rival={rival} isMyTurn={isMyTurn} selectedHand={selectedHand} setSelectedHand={setSelectedHand} targeting={targeting} setTargeting={setTargeting} />}
-      {view === 'collection' && <CollectionView />}
-      {view === 'deck' && <DeckBuilder deck={deck} setDeck={setDeck} />}
-      {view === 'inventory' && <Inventory stats={collectionStats} name={name} />}
-    </main>
+        {view === 'battle' && <BattleView battle={battle} me={me} rival={rival} isMyTurn={isMyTurn} selectedHand={selectedHand} setSelectedHand={setSelectedHand} targeting={targeting} setTargeting={setTargeting} />}
+        {view === 'collection' && <CollectionView />}
+        {view === 'deck' && <DeckBuilder deck={deck} setDeck={setDeck} />}
+        {view === 'inventory' && <Inventory stats={collectionStats} name={name} />}
+      </main>
+    </AuthGate>
   )
 }
 
@@ -190,12 +200,12 @@ function InBattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHa
     if (!isMyTurn || me.energy < card.cost) return
     setSelectedHand(index)
     if (card.type === 'spell' && card.effect === 'damage') setTargeting({ type: 'play', handIndex: index })
-    else socket.emit('battle:action', { type: 'play', handIndex: index } satisfies BattleAction)
+    else getSocket()?.emit('battle:action', { type: 'play', handIndex: index } satisfies BattleAction)
   }
 
   function chooseTarget(targetId?: string) {
     if (!targeting) return
-    socket.emit('battle:action', { ...targeting, targetId })
+    getSocket()?.emit('battle:action', { ...targeting, targetId })
   }
 
   return (
@@ -259,8 +269,7 @@ function InBattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHa
         <button className="core" disabled={!targeting} onClick={() => chooseTarget(undefined)}>
           <Flame size={24} /> Rival Core <strong>{rival.hp} HP</strong>
         </button>
-        <div className="turn-pill">{isMyTurn ? 'Your turn' : `${rival.name}'s turn`}</div>
-        <button className="ghost" disabled={!isMyTurn} onClick={() => socket.emit('battle:action', { type: 'endTurn' } satisfies BattleAction)}>End Turn</button>
+        <div className="turn-pill">{isMyTurn ? 'Your turn' : `${rival.name}'s turn`}</div>          <button className="ghost" disabled={!isMyTurn} onClick={() => getSocket()?.emit('battle:action', { type: 'endTurn' } satisfies BattleAction)}>End Turn</button>
       </div>
       <Board cards={me.board} onTarget={(id) => {
         if (targeting) chooseTarget(id)

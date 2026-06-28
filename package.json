@@ -13,6 +13,8 @@
     "start": "tsx server/index.ts"
   },
   "dependencies": {
+    "@clerk/backend": "^3.8.4",
+    "@clerk/clerk-react": "^5.61.8",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "concurrently": "^9.2.3",
