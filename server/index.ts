@@ -3,6 +3,7 @@ import { Server } from 'socket.io'
 import { CARD_BY_CODE, STARTER_DECK } from '../src/data/cards'
 import { applyAction, createBattle, toClientState } from '../src/game/engine'
 import type { BattleAction, BattleState, CardCode } from '../src/game/types'
+import { decideBotActions } from './ai-bot'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
@@ -97,26 +98,25 @@ function scheduleBotMatch(player: QueuedPlayer) {
 
 function scheduleBotTurn(battle: BattleState) {
   if (battle.phase === 'finished' || !botPlayers.has(battle.activePlayerId)) return
-  setTimeout(() => {
+
+  setTimeout(async () => {
     const bot = battle.players.find((player) => player.id === battle.activePlayerId)
     const rival = battle.players.find((player) => player.id !== battle.activePlayerId)
     if (!bot || !rival || battle.phase === 'finished') return
 
-    const index = bot.hand.findIndex((code) => bot.energy >= CARD_BY_CODE[code].cost)
+    const actions = await decideBotActions(battle, bot.id)
 
-    if (index >= 0) {
-      applyAction(battle, bot.id, { type: 'play', handIndex: index })
-    }
-
-    for (const unit of [...bot.board]) {
-      if (unit.canAttack) applyAction(battle, bot.id, { type: 'attack', attackerId: unit.instanceId, targetId: rival.board[0]?.instanceId })
+    for (const action of actions) {
+      if (battle.phase === 'finished') break
+      applyAction(battle, bot.id, action)
     }
 
     if (battle.phase === 'playing' && battle.activePlayerId === bot.id) {
       applyAction(battle, bot.id, { type: 'endTurn' })
     }
+
     emitBattle(battle)
-  }, 900)
+  }, 1200)
 }
 
 io.on('connection', (socket) => {
