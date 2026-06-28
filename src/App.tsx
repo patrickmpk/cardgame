@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Canvas } from '@react-three/fiber'
 import { BadgePlus, Boxes, Check, Crown, Flame, Hand, Heart, Hourglass, Library, LogOut, Play, Shield, Swords, Trophy, UserRound, Wifi, WifiOff, Zap } from 'lucide-react'
 import './App.css'
 import { CARD_BY_CODE, CARDS, STARTER_COLLECTION, STARTER_DECK } from './data/cards'
 import type { BattleAction, Card, CardCode, ClientBattleState, PublicPlayer } from './game/types'
 import { socket, socketUrl } from './network/socket'
+import { Arena3D, FloatingCard, PulseEffect } from './components/3D'
 
 type View = 'battle' | 'collection' | 'deck' | 'inventory'
 
@@ -159,6 +161,119 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
   return <div className="stat">{icon}<span>{label}</span><strong>{value}</strong></div>
 }
 
+function InBattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand, targeting, setTargeting }: {
+  battle: ClientBattleState
+  me: PublicPlayer
+  rival: PublicPlayer
+  isMyTurn: boolean
+  selectedHand: number | null
+  setSelectedHand: (index: number | null) => void
+  targeting: BattleAction | null
+  setTargeting: (action: BattleAction | null) => void
+}) {
+  const [pulseBurst, setPulseBurst] = useState(false)
+
+  // Detect Pulse Burst from battle log
+  useEffect(() => {
+    const hasBurst = battle.log.some((item) => item.text.includes('PULSE BURST'))
+    if (hasBurst) {
+      setPulseBurst(true)
+      const timer = setTimeout(() => setPulseBurst(false), 1500)
+      return () => clearTimeout(timer)
+    }
+  }, [battle.log])
+
+  const winner = battle.winnerId === me.id ? 'Victory' : battle.winnerId === rival.id ? 'Defeat' : null
+
+  function playHand(index: number) {
+    const card = CARD_BY_CODE[battle.hand[index]]
+    if (!isMyTurn || me.energy < card.cost) return
+    setSelectedHand(index)
+    if (card.type === 'spell' && card.effect === 'damage') setTargeting({ type: 'play', handIndex: index })
+    else socket.emit('battle:action', { type: 'play', handIndex: index } satisfies BattleAction)
+  }
+
+  function chooseTarget(targetId?: string) {
+    if (!targeting) return
+    socket.emit('battle:action', { ...targeting, targetId })
+  }
+
+  return (
+    <>
+      {/* 3D Canvas background */}
+      <Canvas
+        camera={{ position: [0, 0, 4.5], fov: 45 }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 0,
+          borderRadius: 'inherit',
+        }}
+        gl={{ antialias: true, alpha: true }}
+      >
+        <Arena3D
+          pulseElement={battle.activePlayerId === me.id ? me.pulseElement : rival.pulseElement}
+          pulseCharge={battle.activePlayerId === me.id ? me.pulseCharge : rival.pulseCharge}
+        >
+          {/* 3D cards for rival's board */}
+          {rival.board.map((unit, i) => (
+            <FloatingCard
+              key={unit.instanceId}
+              card={CARD_BY_CODE[unit.code]}
+              position={[-1.2 + i * 1.2, 1.8, 0]}
+            />
+          ))}
+
+          {/* 3D cards for my board */}
+          {me.board.map((unit, i) => (
+            <FloatingCard
+              key={unit.instanceId}
+              card={CARD_BY_CODE[unit.code]}
+              position={[-1.2 + i * 1.2, -1.2, 0]}
+            />
+          ))}
+
+          {/* Pulse Burst effect */}
+          <PulseEffect
+            active={pulseBurst}
+            element={me.pulseElement ?? rival.pulseElement}
+            position={[0, 0, 0]}
+            intensity={1.5}
+          />
+        </Arena3D>
+      </Canvas>
+
+      {winner && <div className="result-banner">{winner}</div>}
+      <div className="battle-bursts" aria-hidden="true">
+        {battle.log.slice(0, 3).map((item, index) => (
+          <span key={item.id} className={`burst ${item.tone}`} style={{ animationDelay: `${index * 120}ms` }}>{item.text}</span>
+        ))}
+      </div>
+
+      <PlayerPanel player={rival} active={battle.activePlayerId === rival.id} />
+      <Board cards={rival.board} opponent onTarget={chooseTarget} targeting={targeting} />
+      <div className="core-row">
+        <button className="core" disabled={!targeting} onClick={() => chooseTarget(undefined)}>
+          <Flame size={24} /> Rival Core <strong>{rival.hp} HP</strong>
+        </button>
+        <div className="turn-pill">{isMyTurn ? 'Your turn' : `${rival.name}'s turn`}</div>
+        <button className="ghost" disabled={!isMyTurn} onClick={() => socket.emit('battle:action', { type: 'endTurn' } satisfies BattleAction)}>End Turn</button>
+      </div>
+      <Board cards={me.board} onTarget={(id) => {
+        if (targeting) chooseTarget(id)
+        else if (isMyTurn) setTargeting({ type: 'attack', attackerId: id })
+      }} targeting={targeting} />
+      <PlayerPanel player={me} active={battle.activePlayerId === me.id} />
+      <div className="hand-row">
+        {battle.hand.map((code, index) => <CardTile key={`${code}-${index}`} card={CARD_BY_CODE[code]} compact selected={selectedHand === index} disabled={!isMyTurn || me.energy < CARD_BY_CODE[code].cost} onClick={() => playHand(index)} />)}
+      </div>
+    </>
+  )
+}
+
 function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand, targeting, setTargeting }: {
   battle: ClientBattleState | null
   me?: PublicPlayer
@@ -184,21 +299,6 @@ function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand
     )
   }
 
-  const winner = battle.winnerId === me.id ? 'Victory' : battle.winnerId === rival.id ? 'Defeat' : null
-
-  function playHand(index: number) {
-    const card = CARD_BY_CODE[battle!.hand[index]]
-    if (!isMyTurn || me!.energy < card.cost) return
-    setSelectedHand(index)
-    if (card.type === 'spell' && card.effect === 'damage') setTargeting({ type: 'play', handIndex: index })
-    else socket.emit('battle:action', { type: 'play', handIndex: index } satisfies BattleAction)
-  }
-
-  function chooseTarget(targetId?: string) {
-    if (!targeting) return
-    socket.emit('battle:action', { ...targeting, targetId })
-  }
-
   return (
     <section className="battle-grid">
       <aside className="combat-log">
@@ -207,29 +307,16 @@ function BattleView({ battle, me, rival, isMyTurn, selectedHand, setSelectedHand
       </aside>
 
       <div className="arena">
-        {winner && <div className="result-banner">{winner}</div>}
-        <div className="battle-bursts" aria-hidden="true">
-          {battle.log.slice(0, 3).map((item, index) => (
-            <span key={item.id} className={`burst ${item.tone}`} style={{ animationDelay: `${index * 120}ms` }}>{item.text}</span>
-          ))}
-        </div>
-        <PlayerPanel player={rival} active={battle.activePlayerId === rival.id} />
-        <Board cards={rival.board} opponent onTarget={chooseTarget} targeting={targeting} />
-        <div className="core-row">
-          <button className="core" disabled={!targeting} onClick={() => chooseTarget(undefined)}>
-            <Flame size={24} /> Rival Core <strong>{rival.hp} HP</strong>
-          </button>
-          <div className="turn-pill">{isMyTurn ? 'Your turn' : `${rival.name}'s turn`}</div>
-          <button className="ghost" disabled={!isMyTurn} onClick={() => socket.emit('battle:action', { type: 'endTurn' } satisfies BattleAction)}>End Turn</button>
-        </div>
-        <Board cards={me.board} onTarget={(id) => {
-          if (targeting) chooseTarget(id)
-          else if (isMyTurn) setTargeting({ type: 'attack', attackerId: id })
-        }} targeting={targeting} />
-        <PlayerPanel player={me} active={battle.activePlayerId === me.id} />
-        <div className="hand-row">
-          {battle.hand.map((code, index) => <CardTile key={`${code}-${index}`} card={CARD_BY_CODE[code]} compact selected={selectedHand === index} disabled={!isMyTurn || me.energy < CARD_BY_CODE[code].cost} onClick={() => playHand(index)} />)}
-        </div>
+        <InBattleView
+          battle={battle}
+          me={me}
+          rival={rival}
+          isMyTurn={isMyTurn}
+          selectedHand={selectedHand}
+          setSelectedHand={setSelectedHand}
+          targeting={targeting}
+          setTargeting={setTargeting}
+        />
       </div>
     </section>
   )
